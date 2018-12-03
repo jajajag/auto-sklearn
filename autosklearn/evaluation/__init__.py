@@ -14,18 +14,19 @@ from smac.tae.execute_ta_run import StatusType, BudgetExhaustedException, \
     TAEAbortException
 from smac.tae.execute_func import AbstractTAFunc
 from ConfigSpace import Configuration
-from sklearn.model_selection._split import _RepeatedSplits, BaseShuffleSplit,\
+from sklearn.model_selection._split import _RepeatedSplits, BaseShuffleSplit, \
     BaseCrossValidator
 
 import autosklearn.evaluation.train_evaluator
 import autosklearn.evaluation.test_evaluator
 import autosklearn.evaluation.util
+import sys
+import copy
 
 WORST_POSSIBLE_RESULT = 1.0
 
 
 def fit_predict_try_except_decorator(ta, queue, **kwargs):
-
     try:
         return ta(queue=queue, **kwargs)
     except Exception as e:
@@ -53,20 +54,23 @@ class ExecuteTaFuncWithQueue(AbstractTAFunc):
                  run_obj='quality', par_factor=1, all_scoring_functions=False,
                  output_y_hat_optimization=True, include=None, exclude=None,
                  memory_limit=None, disable_file_output=False, init_params=None,
+                 # 调用正方向代码的参数，默认为None
+                 direction_args=None,
                  **resampling_strategy_args):
 
+        # 选择evaluation function，决定loss
         if resampling_strategy == 'holdout':
             eval_function = autosklearn.evaluation.train_evaluator.eval_holdout
         elif resampling_strategy == 'holdout-iterative-fit':
             eval_function = autosklearn.evaluation.train_evaluator.eval_iterative_holdout
         elif resampling_strategy == 'cv' or \
-        (
-            isinstance(resampling_strategy, type) and (
-                issubclass(resampling_strategy, BaseCrossValidator) or
-                issubclass(resampling_strategy, _RepeatedSplits) or
-                issubclass(resampling_strategy, BaseShuffleSplit)
-            )
-        ):
+                (
+                        isinstance(resampling_strategy, type) and (
+                        issubclass(resampling_strategy, BaseCrossValidator) or
+                        issubclass(resampling_strategy, _RepeatedSplits) or
+                        issubclass(resampling_strategy, BaseShuffleSplit)
+                )
+                ):
             eval_function = autosklearn.evaluation.train_evaluator.eval_cv
         elif resampling_strategy == 'partial-cv':
             eval_function = autosklearn.evaluation.train_evaluator.eval_partial_cv
@@ -105,6 +109,24 @@ class ExecuteTaFuncWithQueue(AbstractTAFunc):
         self.disable_file_output = disable_file_output
         self.init_params = init_params
         self.logger = logger
+        # 首先将self.direction_args设为默认值
+        self.direction_args = {
+            'direction_flag': False,
+            'threshold': 1.0,
+            'break_flag': True,
+            'train_set': False
+        }
+        # 如果传入了参数，而且是字典格式的
+        if isinstance(direction_args, dict):
+            for key in ['direction_flag', 'break_flag', 'train_set']:
+                # 覆盖所有在direction中的values
+                if isinstance(direction_args.get(key), bool):
+                    self.direction_args[key] = direction_args[key]
+            # 如果threshold存在且在(0, 1)之间，则赋新值
+            if isinstance(direction_args.get('threshold'), float) and \
+                direction_args.get('threshold') > 0 and direction_args.get(
+                    'threshold') < 1:
+                self.direction_args['threshold'] = direction_args['threshold']
 
         if memory_limit is not None:
             memory_limit = int(math.ceil(memory_limit))
@@ -124,7 +146,7 @@ class ExecuteTaFuncWithQueue(AbstractTAFunc):
               instance: Optional[str],
               cutoff: float = None,
               seed: int = 12345,
-              instance_specific: Optional[str]=None,
+              instance_specific: Optional[str] = None,
               capped: bool = False):
         """
         wrapper function for ExecuteTARun.start() to cap the target algorithm
@@ -165,6 +187,7 @@ class ExecuteTaFuncWithQueue(AbstractTAFunc):
             raise BudgetExhaustedException()
         cutoff = int(np.ceil(cutoff))
 
+        # 调用父类的start，实际包含了ta的run
         return super().start(config=config, instance=instance, cutoff=cutoff,
                              seed=seed, instance_specific=instance_specific,
                              capped=capped)
@@ -174,21 +197,37 @@ class ExecuteTaFuncWithQueue(AbstractTAFunc):
             seed=12345,
             instance_specific=None):
 
-        queue = multiprocessing.Queue()
-
         if not (instance_specific is None or instance_specific == '0'):
             raise ValueError(instance_specific)
         init_params = {'instance': instance}
         if self.init_params is not None:
             init_params.update(self.init_params)
 
+        # 设定pynisher的limitation
         arguments = dict(
             logger=logging.getLogger("pynisher"),
             wall_time_in_s=cutoff,
             mem_in_mb=self.memory_limit,
         )
+
+        '''
+        # 打印config中的每个value
+        if isinstance(config, Configuration):
+            for key, value in config._values.items():
+                # 尝试修改决策树中的hyperparameters
+                config._values['classifier:decision_tree:max_features'] = 2
+                config._values['classifier:decision_tree:max_depth'] *= 2
+                # 对所有开头为classifier的值
+                if key.startswith('classifier:'):
+                    print(key, value)
+                 print(key, value)
+        # 刷新缓冲区
+        sys.stdout.flush()
+        '''
+
         obj_kwargs = dict(
-            queue=queue,
+            # queue在helper内declare
+            # queue=queue,
             config=config,
             backend=self.backend,
             metric=self.metric,
@@ -201,12 +240,78 @@ class ExecuteTaFuncWithQueue(AbstractTAFunc):
             disable_file_output=self.disable_file_output,
             instance=instance,
             init_params=init_params,
+            # 实际上ta是eval_function，在此处传入ta的参数(train_set)
+            train_set=self.direction_args['train_set']
         )
 
         if self.resampling_strategy != 'test':
             obj_kwargs['resampling_strategy'] = self.resampling_strategy
-            obj_kwargs['resampling_strategy_args'] = self.resampling_strategy_args
+            obj_kwargs[
+                'resampling_strategy_args'] = self.resampling_strategy_args
 
+        # 先调用一次算法
+        status, cost, runtime, additional_run_info = \
+            self.start_helper(arguments, obj_kwargs, config)
+        # 判断是否执行正方向代码，如果参数direction_flag为False则返回
+        # 或者config不是Configuration类
+        if not self.direction_args['direction_flag'] or not isinstance(
+                config, Configuration):
+            return status, cost, runtime, additional_run_info
+
+        # 首先深复制一个config对象
+        config_copy = copy.deepcopy(config)
+
+        '''
+        # 未得到更优化结果前无限循环，由内部跳出，首先config应该是Configuration
+        while isinstance(config, Configuration):
+
+            # 对这个copy进行处理
+            config_copy = self.config_helper(config_copy, arguments)
+            status_copy, cost_copy, runtime_copy, additional_run_info_copy \
+                = self.start_helper(arguments, obj_kwargs, config_copy)
+
+            # 如果向正方向前进的算法比普通smac优20%以上
+            if cost_copy < 0.8 * cost:
+                # 更新参数
+                config, status, cost, runtime, additional_run_info = \
+                    config_copy, status_copy, cost_copy, runtime_copy, \
+                    additional_run_info_copy
+            else:
+                # 返回
+                break
+        '''
+
+        # 改为处理3组不同的倍数
+        for ratio in [2, 1.5, 1.25]:
+
+            # 对这个copy进行处理
+            config_copy = self.config_helper(config_copy, ratio)
+            status_copy, cost_copy, runtime_copy, additional_run_info_copy \
+                = self.start_helper(arguments, obj_kwargs, config_copy)
+
+            # 如果向正方向前进的算法比普通smac优
+            # 设定两种阈值，一种是80%，一种是100%(有优化就使用)
+            if cost_copy < self.direction_args['threshold'] * cost:
+                # 更新参数
+                config, status, cost, runtime, additional_run_info = \
+                    config_copy, status_copy, cost_copy, runtime_copy, \
+                    additional_run_info_copy
+                # 如果break_flag为True，则提前返回
+                if self.direction_args['break_flag']:
+                    break
+
+        return status, cost, runtime, additional_run_info
+
+    # 将运行算法的部分写入一个helper中
+    def start_helper(self, arguments, obj_kwargs, config):
+
+        # queue用来开多线程保存状态，覆写queue
+        queue = multiprocessing.Queue()
+        obj_kwargs['queue'] = queue
+        # 千万不能忘了加这个，之前没有改config
+        obj_kwargs['config'] = config
+
+        # 限制资源使用的包(时间，内存)
         obj = pynisher.enforce_limits(**arguments)(self.ta)
         obj(**obj_kwargs)
 
@@ -222,9 +327,11 @@ class ExecuteTaFuncWithQueue(AbstractTAFunc):
                 additional_run_info = info[-1]['additional_run_info']
 
                 if obj.exit_status is pynisher.TimeoutException:
-                    additional_run_info['info'] = 'Run stopped because of timeout.'
+                    additional_run_info[
+                        'info'] = 'Run stopped because of timeout.'
                 elif obj.exit_status is pynisher.MemorylimitException:
-                    additional_run_info['info'] = 'Run stopped because of memout.'
+                    additional_run_info[
+                        'info'] = 'Run stopped because of memout.'
 
                 if status == StatusType.SUCCESS:
                     cost = result
@@ -286,14 +393,17 @@ class ExecuteTaFuncWithQueue(AbstractTAFunc):
             )
             if len(learning_curve) > 1:
                 additional_run_info['learning_curve'] = learning_curve
-                additional_run_info['learning_curve_runtime'] = learning_curve_runtime
+                additional_run_info[
+                    'learning_curve_runtime'] = learning_curve_runtime
 
             train_learning_curve = util.extract_learning_curve(
                 info, 'train_loss'
             )
             if len(train_learning_curve) > 1:
-                additional_run_info['train_learning_curve'] = train_learning_curve
-                additional_run_info['learning_curve_runtime'] = learning_curve_runtime
+                additional_run_info[
+                    'train_learning_curve'] = train_learning_curve
+                additional_run_info[
+                    'learning_curve_runtime'] = learning_curve_runtime
 
             if self._get_validation_loss:
                 validation_learning_curve = util.extract_learning_curve(
@@ -310,10 +420,10 @@ class ExecuteTaFuncWithQueue(AbstractTAFunc):
                     info, 'test_loss',
                 )
                 if len(test_learning_curve) > 1:
-                    additional_run_info['test_learning_curve'] = test_learning_curve
+                    additional_run_info[
+                        'test_learning_curve'] = test_learning_curve
                     additional_run_info[
                         'learning_curve_runtime'] = learning_curve_runtime
-
 
         if isinstance(config, int):
             origin = 'DUMMY'
@@ -326,7 +436,125 @@ class ExecuteTaFuncWithQueue(AbstractTAFunc):
 
         autosklearn.evaluation.util.empty_queue(queue)
 
+        # 打印必要的信息，简称打信息
+        print('ADDITIONAL_RUN_INFO:', additional_run_info)
+        if 'info' in vars():  # or 'info' in global():
+            print('INFO:', info)
+        print(config)
+        sys.stdout.flush()
+
         return status, cost, runtime, additional_run_info
 
+    def config_helper(self, config_copy, ratio):
 
+        # 默认使用dt
+        name = 'classifier:decision_tree'
+        for key in config_copy.keys():
+            if key.startswith('classifier'):
+                # 获得该classifier的全名
+                name = 'classifier:' + key.split(':')[1] + ':'
 
+        # 如果model是decision tree
+        if name == 'classifier:decision_tree:':
+
+            # 扩展超参的大小
+            config_copy._values[name + 'max_depth'] *= ratio
+            config_copy._values[name + 'min_samples_split'] = int(
+                config_copy._values[name + 'min_samples_split'] / ratio)
+            config_copy._values[name + 'min_samples_leaf'] = int(
+                config_copy._values[name + 'min_samples_leaf'] / ratio)
+
+            # 限制超参的边界
+            if config_copy._values[name + 'max_depth'] > 5:
+                config_copy._values[name + 'max_depth'] = 5
+
+            if config_copy._values[name + 'min_samples_split'] < 2:
+                config_copy._values[name + 'min_samples_split'] = 2
+            elif config_copy._values[name + 'min_samples_split'] > 20:
+                config_copy._values[name + 'min_samples_split'] = 20
+
+            if config_copy._values[name + 'min_samples_leaf'] < 1:
+                config_copy._values[name + 'min_samples_leaf'] = 1
+            elif config_copy._values[name + 'min_samples_leaf'] > 20:
+                config_copy._values[name + 'min_samples_leaf'] = 20
+
+        # 如果模型是xgboost
+        elif name == 'classifier:xgradient_boosting:':
+
+            # 扩展超参的大小
+            config_copy._values[name + 'max_depth'] = int(
+                config_copy._values[name + 'max_depth'] * ratio)
+            config_copy._values[name + 'learning_rate'] /= ratio
+            config_copy._values[name + 'subsample'] *= ratio
+
+            # 限制超参的边界
+            if config_copy._values[name + 'max_depth'] > 20:
+                config_copy._values[name + 'max_depth'] = 20
+            elif config_copy._values[name + 'max_depth'] < 1:
+                config_copy._values[name + 'max_depth'] = 1
+
+            if config_copy._values[name + 'learning_rate'] < 0.001:
+                config_copy._values[name + 'learning_rate'] = 0.001
+            elif config_copy._values[name + 'learning_rate'] > 1:
+                config_copy._values[name + 'learning_rate'] = 1
+
+            if config_copy._values[name + 'subsample'] > 1:
+                config_copy._values[name + 'subsample'] = 1
+            elif config_copy._values[name + 'subsample'] < 0.01:
+                config_copy._values[name + 'subsample'] = 0.01
+
+            '''
+            # 暂时不使用这段代码
+            # 对于learning rate，减小则需要分配更多时间资源
+            arguments['wall_time_in_s'] *= int(0.1 / config_copy._values[ \
+                name + 'learning_rate']) if config_copy._values[name + \
+                                                'learning_rate'] < 0.1 else 1
+            '''
+
+        # 如果模型是gbdt
+        elif name == 'classifier:gradient_boosting:':
+
+            # 扩展超参的大小
+            config_copy._values[name + 'max_depth'] = int(
+                config_copy._values[name + 'max_depth'] * ratio)
+            config_copy._values[name + 'learning_rate'] /= ratio
+            config_copy._values[name + 'subsample'] *= ratio
+
+            # 限制超参的边界
+            if config_copy._values[name + 'max_depth'] > 10:
+                config_copy._values[name + 'max_depth'] = 10
+            elif config_copy._values[name + 'max_depth'] < 1:
+                config_copy._values[name + 'max_depth'] = 1
+
+            if config_copy._values[name + 'learning_rate'] < 0.01:
+                config_copy._values[name + 'learning_rate'] = 0.01
+            elif config_copy._values[name + 'learning_rate'] > 1:
+                config_copy._values[name + 'learning_rate'] = 1
+
+            if config_copy._values[name + 'subsample'] > 1:
+                config_copy._values[name + 'subsample'] = 1
+            elif config_copy._values[name + 'subsample'] < 0.01:
+                config_copy._values[name + 'subsample'] = 0.01
+
+            '''
+            # 暂时不使用这段代码
+            # 对于learning rate，减小则需要分配更多时间资源
+            arguments['wall_time_in_s'] *= int(0.1 / config_copy._values[ \
+                name + 'learning_rate']) if config_copy._values[name + \
+                                                'learning_rate'] < 0.1 else 1
+            '''
+
+        # 如果模型是sgd
+        elif name == 'classifier:sgd:':
+
+            # 扩展超参的大小
+            config_copy._values[name + 'eta0'] /= ratio
+
+            # 限制超参的边界
+            if config_copy._values[name + 'eta0'] < 1e-7:
+                config_copy._values[name + 'eta0'] = 1e-7
+            elif config_copy._values[name + 'eta0'] > 1e-1:
+                config_copy._values[name + 'eta0'] = 1e-1
+
+        # 需要返回config(致命bug)
+        return config_copy
