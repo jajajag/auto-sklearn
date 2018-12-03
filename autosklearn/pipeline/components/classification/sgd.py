@@ -142,33 +142,45 @@ class SGD(
         cs = ConfigurationSpace()
 
         loss = CategoricalHyperparameter("loss",
-            ["hinge", "log", "modified_huber", "squared_hinge", "perceptron"],
-            default_value="log")
+            ["log"], default_value="log")
+            #"hinge", "log", "modified_huber", "squared_hinge", "perceptron"],
+            #default_value="log")
         penalty = CategoricalHyperparameter(
-            "penalty", ["l1", "l2", "elasticnet"], default_value="l2")
+            #"penalty", ["l1", "l2", "elasticnet"], default_value="l2")
+            "penalty", ["l2"], default_value="l2")
         alpha = UniformFloatHyperparameter(
-            "alpha", 1e-7, 1e-1, log=True, default_value=0.0001)
-        l1_ratio = UniformFloatHyperparameter(
-            "l1_ratio", 1e-9, 1,  log=True, default_value=0.15)
+            #"alpha", 1e-7, 1e-1, log=True, default_value=0.0001)
+            "alpha", 1e-7, 1, log=True, default_value=1)
+        #l1_ratio = UniformFloatHyperparameter(
+        #    "l1_ratio", 1e-9, 1,  log=True, default_value=0.15)
         fit_intercept = UnParametrizedHyperparameter("fit_intercept", "True")
-        tol = UniformFloatHyperparameter("tol", 1e-5, 1e-1, log=True,
+        # 将tol固定为1e-7(训练充分)
+        #tol = UniformFloatHyperparameter("tol", 1e-5, 1e-1, log=True,
+        #                                 default_value=1e-4)
+        tol = UniformFloatHyperparameter("tol", 1e-4, 1.1e-4, log=True,
                                          default_value=1e-4)
-        epsilon = UniformFloatHyperparameter(
-            "epsilon", 1e-5, 1e-1, default_value=1e-4, log=True)
+        #epsilon = UniformFloatHyperparameter(
+        #    "epsilon", 1e-5, 1e-1, default_value=1e-4, log=True)
         learning_rate = CategoricalHyperparameter(
-            "learning_rate", ["optimal", "invscaling", "constant"],
-            default_value="invscaling")
+            "learning_rate", ["constant"],
+            #["optimal", "invscaling", "constant"], default_value="invscaling")
+            default_value="constant")
         eta0 = UniformFloatHyperparameter(
-            "eta0", 1e-7, 1e-1, default_value=0.01, log=True)
-        power_t = UniformFloatHyperparameter("power_t", 1e-5, 1,
-                                             default_value=0.5)
+            #"eta0", 1e-7, 1e-1, default_value=0.01, log=True)
+            "eta0", 1e-2, 1.1e-2, default_value=1e-2, log=True)
+        #power_t = UniformFloatHyperparameter("power_t", 1e-5, 1,
+        #                                     default_value=0.5)
         average = CategoricalHyperparameter(
-            "average", ["False", "True"], default_value="False")
-        cs.add_hyperparameters([loss, penalty, alpha, l1_ratio, fit_intercept,
-                                tol, epsilon, learning_rate, eta0, power_t,
-                                average])
+            #"average", ["False", "True"], default_value="False")
+            "average", ["False"], default_value="False")
+        #cs.add_hyperparameters([loss, penalty, alpha, l1_ratio, fit_intercept,
+        #                        tol, epsilon, learning_rate, eta0, power_t,
+        #                        average])
+        cs.add_hyperparameters([loss, penalty, alpha, fit_intercept, tol,
+                                learning_rate, eta0, average])
 
         # TODO add passive/aggressive here, although not properly documented?
+        '''
         elasticnet = EqualsCondition(l1_ratio, penalty, "elasticnet")
         epsilon_condition = EqualsCondition(epsilon, loss, "modified_huber")
 
@@ -178,10 +190,11 @@ class SGD(
         # eta0 is only relevant if learning_rate!='optimal' according to code
         # https://github.com/scikit-learn/scikit-learn/blob/0.19.X/sklearn/
         # linear_model/sgd_fast.pyx#L603
-        eta0_in_inv_con = InCondition(eta0, learning_rate, ["invscaling",
-                                                            "constant"])
-        cs.add_conditions([elasticnet, epsilon_condition, power_t_condition,
-                           eta0_in_inv_con])
+        '''
+        #eta0_in_inv_con = InCondition(eta0, learning_rate, ["constant"])
+                                                        #, "invscaling"])
+        #cs.add_conditions([eta0_in_inv_con])
+        #cs.add_conditions([elasticnet, epsilon_condition, power_t_condition,
+        #                   eta0_in_inv_con])
 
         return cs
-

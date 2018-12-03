@@ -91,9 +91,12 @@ class DecisionTree(AutoSklearnClassificationAlgorithm):
         cs = ConfigurationSpace()
 
         criterion = CategoricalHyperparameter(
-            "criterion", ["gini", "entropy"], default_value="gini")
+            "criterion", ["gini"], default_value="gini")
+            #, "entropy"], default_value="gini")
         max_depth = UniformFloatHyperparameter(
-            'max_depth', 0., 2., default_value=0.5)
+            # 增大决策树的最大深度到10，之前默认的深度太低了
+            'max_depth', 0., 10., default_value=0.5)
+            #2., default_value=0.5)
         min_samples_split = UniformIntegerHyperparameter(
             "min_samples_split", 2, 20, default_value=2)
         min_samples_leaf = UniformIntegerHyperparameter(

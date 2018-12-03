@@ -233,6 +233,7 @@ class XGradientBoostingClassifier(
     def get_hyperparameter_search_space(dataset_properties=None):
         cs = ConfigurationSpace()
 
+        # 修改max_depth，learning_rate，subsample三个超参的值
         # Parameterized Hyperparameters
         max_depth = UniformIntegerHyperparameter(
             name="max_depth", lower=1, upper=20, default_value=3
@@ -243,7 +244,8 @@ class XGradientBoostingClassifier(
         )
         n_estimators = Constant("n_estimators", 512)
         booster = CategoricalHyperparameter(
-            "booster", ["gbtree", "dart"]
+            #"booster", ["gbtree", "dart"]
+            "booster", ["gbtree"]
         )
         subsample = UniformFloatHyperparameter(
             name="subsample", lower=0.01, upper=1.0, default_value=1.0, log=False
@@ -265,16 +267,20 @@ class XGradientBoostingClassifier(
             name="reg_lambda", lower=1e-10, upper=1e-1, log=True,
             default_value=1e-10)
 
+        '''
         # DART Hyperparameters
+        # 不使用dart的子超参
         sample_type = CategoricalHyperparameter(
             'sample_type', ['uniform', 'weighted'], default_value='uniform',
         )
         normalize_type = CategoricalHyperparameter(
-            'normalize_type', ['tree', 'forest'], default_value='tree',
+            #'normalize_type', ['tree', 'forest'], default_value='tree',
+            'normalize_type', ['tree'], default_value='tree',
         )
         rate_drop = UniformFloatHyperparameter(
             'rate_drop', 1e-10, 1-(1e-10), default_value=0.5,
         )
+        '''
 
         # Unparameterized Hyperparameters
         # https://xgboost.readthedocs.io/en/latest//parameter.html
@@ -298,12 +304,15 @@ class XGradientBoostingClassifier(
             subsample, colsample_bytree, colsample_bylevel,
             reg_alpha, reg_lambda,
             # DART
-            sample_type, normalize_type, rate_drop,
+            # 不使用dart的子超参
+            #sample_type, normalize_type, rate_drop,
             # Inactive
             min_child_weight, max_delta_step, gamma,
             base_score, scale_pos_weight
         ])
 
+        '''
+        # 不使用dart的子超参
         sample_type_condition = EqualsCondition(
             sample_type, booster, 'dart',
         )
@@ -318,4 +327,5 @@ class XGradientBoostingClassifier(
             sample_type_condition, normalize_type_condition,
             rate_drop_condition,
         ])
+        '''
         return cs
