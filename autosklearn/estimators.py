@@ -3,7 +3,6 @@ from sklearn.base import BaseEstimator
 
 from autosklearn.automl import AutoMLClassifier, AutoMLRegressor
 from autosklearn.util.backend import create
-from sklearn.utils.multiclass import type_of_target
 
 
 class AutoSklearnEstimator(BaseEstimator):
@@ -30,8 +29,17 @@ class AutoSklearnEstimator(BaseEstimator):
                  disable_evaluator_output=False,
                  get_smac_object_callback=None,
                  smac_scenario_args=None,
-                 logging_config=None,
-                 ):
+                 # 加入启用正方向代码的args
+                 direction_args=None):
+        '''
+        direction_args的参数格式如下，如果没赋值则为默认值。
+        direction_args = {
+            'direction_flag': False,
+            'threshold': 1.0,
+            'break_flag': True,
+            'train_set': False
+        }
+        '''
         """
         Parameters
         ----------
@@ -171,11 +179,6 @@ class AutoSklearnEstimator(BaseEstimator):
             This is an advanced feature. Use only if you are familiar with
             `SMAC <https://automl.github.io/SMAC3/stable/index.html>`_.
 
-        logging_config : dict, optional (None)
-            dictionary object specifying the logger configuration. If None,
-            the default logging.yaml file is used, which can be found in
-            the directory ``util/logging.yaml`` relative to the installation.
-
         Attributes
         ----------
 
@@ -207,7 +210,8 @@ class AutoSklearnEstimator(BaseEstimator):
         self.disable_evaluator_output = disable_evaluator_output
         self.get_smac_object_callback = get_smac_object_callback
         self.smac_scenario_args = smac_scenario_args
-        self.logging_config = logging_config
+        # 启用正方向代码
+        self.direction_args = direction_args
 
         self._automl = None
         super().__init__()
@@ -248,7 +252,8 @@ class AutoSklearnEstimator(BaseEstimator):
             get_smac_object_callback=self.get_smac_object_callback,
             disable_evaluator_output=self.disable_evaluator_output,
             smac_scenario_args=self.smac_scenario_args,
-            logging_config=self.logging_config,
+            # 启用正方向代码
+            direction_args=self.direction_args,
         )
 
         return automl
@@ -466,18 +471,6 @@ class AutoSklearnClassifier(AutoSklearnEstimator):
         self
 
         """
-        # Before running anything else, first check that the
-        # type of data is compatible with auto-sklearn. Legal target
-        # types are: binary, multiclass, multilabel-indicator.
-        target_type = type_of_target(y)
-        if target_type in ['multiclass-multioutput',
-                           'continuous',
-                           'continuous-multioutput',
-                           'unknown',
-                           ]:
-            raise ValueError("classification with data of type %s is"
-                             " not supported" % target_type)
-
         super().fit(
             X=X,
             y=y,
@@ -581,18 +574,6 @@ class AutoSklearnRegressor(AutoSklearnEstimator):
         self
 
         """
-        # Before running anything else, first check that the
-        # type of data is compatible with auto-sklearn. Legal target
-        # types are: continuous, binary, multiclass.
-        target_type = type_of_target(y)
-        if target_type in ['multiclass-multioutput',
-                           'multilabel-indicator',
-                           'continuous-multioutput',
-                           'unknown',
-                           ]:
-            raise ValueError("regression with data of type %s is not"
-                             " supported" % target_type)
-
         # Fit is supposed to be idempotent!
         # But not if we use share_mode.
         super().fit(

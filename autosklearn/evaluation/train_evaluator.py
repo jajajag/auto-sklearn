@@ -68,7 +68,9 @@ class TrainEvaluator(AbstractEvaluator):
                  include=None,
                  exclude=None,
                  disable_file_output=False,
-                 init_params=None):
+                 init_params=None,
+                 # 默认使用测试集
+                 train_set=False):
         super().__init__(
             backend=backend,
             queue=queue,
@@ -83,6 +85,8 @@ class TrainEvaluator(AbstractEvaluator):
             exclude=exclude,
             disable_file_output=disable_file_output,
             init_params=init_params,
+            # 调用父类函数实例化
+            train_set=train_set,
         )
 
         self.resampling_strategy = resampling_strategy
@@ -109,8 +113,10 @@ class TrainEvaluator(AbstractEvaluator):
         self.partial = True
         self.keep_models = keep_models
 
+    # 预测loss的函数
     def fit_predict_and_loss(self, iterative=False):
         if iterative:
+            # cv是一个splitter
             if self.cv_folds > 1:
                 raise ValueError('Cannot use partial fitting together with full'
                                  'cross-validation!')
@@ -156,11 +162,20 @@ class TrainEvaluator(AbstractEvaluator):
                     test_pred,
                     additional_run_info,
                 )= (
+                    # opt_pred得自这里的predict
                     self._partial_fit_and_predict(
                        i, train_indices=train_split, test_indices=test_split
                     )
                 )
-                assert len(opt_pred) == len(test_split), (len(opt_pred), len(test_split))
+
+                # 如果使用训练集
+                if self.train_set:
+                    # 将assert也改成train的长度
+                    assert len(opt_pred) == len(train_split), (len(opt_pred),
+                                                               len(train_split))
+                else:
+                    assert len(opt_pred) == len(test_split), (len(opt_pred),
+                                                              len(test_split))
 
                 if (
                     additional_run_info is not None
@@ -203,6 +218,7 @@ class TrainEvaluator(AbstractEvaluator):
                 ]
 
 
+            # 连接所有的pred
             Y_optimization_pred = np.concatenate(
                 [Y_optimization_pred[i] for i in range(self.cv_folds)
                  if Y_optimization_pred[i] is not None])
@@ -230,8 +246,15 @@ class TrainEvaluator(AbstractEvaluator):
                 Y_test_pred = None
 
             self.Y_optimization = Y_targets
-            loss = self._loss(Y_targets, Y_optimization_pred)
             self.Y_actual_train = Y_train_targets
+
+            # loss实际是在opt_pred进行计算
+            # 在此处改使用train_pred
+            if self.train_set:
+                loss = self._loss(self.Y_train[train_split], Y_optimization_pred)
+            else:
+                # 使用测试集
+                loss = self._loss(Y_targets, Y_optimization_pred)
 
             if self.cv_folds > 1:
                 self.model = self._get_model()
@@ -241,6 +264,7 @@ class TrainEvaluator(AbstractEvaluator):
 
             self.finish_up(
                 loss=loss,
+                # 旧版的代码需要注释掉这部分
                 train_pred=Y_train_pred,
                 opt_pred=Y_optimization_pred,
                 valid_pred=Y_valid_pred,
@@ -282,7 +306,12 @@ class TrainEvaluator(AbstractEvaluator):
                     iterative=iterative,
                 )
             )
-            loss = self._loss(self.Y_targets[fold], opt_pred)
+            # 修改train loss，不保证正确性
+            if self.train_set:
+                loss = self._loss(self.Y_train[train_split][fold], opt_pred)
+            else:
+                # 使用测试集
+                loss = self._loss(self.Y_targets[fold], opt_pred)
 
             if self.cv_folds > 1:
                 self.model = self._get_model()
@@ -345,7 +374,14 @@ class TrainEvaluator(AbstractEvaluator):
                     if self.cv_folds == 1:
                         self.model = model
 
-                    loss = self._loss(self.Y_train[test_indices], Y_optimization_pred)
+                    # loss改为train_indices
+                    if self.train_set:
+                        loss = self._loss(self.Y_train[train_indices],
+                                          Y_optimization_pred)
+                    else:
+                        loss = self._loss(self.Y_train[test_indices],
+                                          Y_optimization_pred)
+
                     additional_run_info = model.get_additional_run_info()
 
                     if model.configuration_fully_fitted():
@@ -386,7 +422,14 @@ class TrainEvaluator(AbstractEvaluator):
                     train_indices=train_indices,
                     test_indices=test_indices
                 )
-                loss = self._loss(self.Y_train[test_indices], Y_optimization_pred)
+                # loss改为train_indices
+                if self.train_set:
+                    loss = self._loss(self.Y_train[train_indices],
+                                    Y_optimization_pred)
+                else:
+                    loss = self._loss(self.Y_train[test_indices],
+                                      Y_optimization_pred)
+
                 additional_run_info = model.get_additional_run_info()
                 self.finish_up(
                     loss=loss,
@@ -412,6 +455,7 @@ class TrainEvaluator(AbstractEvaluator):
             self.Y_targets[fold] = self.Y_train[test_indices]
             self.Y_train_targets[train_indices] = self.Y_train[train_indices]
 
+            # 其中opt_pred得自调用的_predict函数
             train_pred, opt_pred, valid_pred, test_pred = self._predict(
                 model=model,
                 train_indices=train_indices,
@@ -456,9 +500,16 @@ class TrainEvaluator(AbstractEvaluator):
                                            model, self.task_type,
                                            self.Y_train[train_indices])
 
-        opt_pred = self.predict_function(self.X_train[test_indices],
-                                         model, self.task_type,
-                                         self.Y_train[train_indices])
+        # opt_pred使用的是测试集indices，predict_function在父类
+        # Y_train实际上只是用来安排Y_pred的shape，不参与预测
+        # 我们将opt_pred也改成train_pred(衔接老版本)
+        if self.train_set:
+            opt_pred = self.predict_function(self.X_train[train_indices],
+                model, self.task_type, self.Y_train[train_indices])
+        else:
+            # 如果flag为False，则使用测试集
+            opt_pred = self.predict_function(self.X_train[test_indices],
+                model, self.task_type, self.Y_train[train_indices])
 
         if self.X_valid is not None:
             X_valid = self.X_valid.copy()
@@ -542,7 +593,15 @@ class TrainEvaluator(AbstractEvaluator):
 
         y = D.data['Y_train'].ravel()
         shuffle = self.resampling_strategy_args.get('shuffle', True)
-        train_size = 0.67
+
+        # 将train_size改成95%(99%会出现train + test != 总的情况)
+        # 如果使用训练集，则将训练集百分比调高
+        if self.train_set:
+            train_size = 0.95
+        # 否则训练集占2/3
+        else:
+            train_size = 0.67
+
         if self.resampling_strategy_args:
             train_size = self.resampling_strategy_args.get('train_size',
                                                            train_size)
@@ -623,6 +682,7 @@ def eval_holdout(
         disable_file_output,
         init_params=None,
         iterative=False,
+        train_set=False
 ):
     instance = json.loads(instance) if instance is not None else {}
     subsample = instance.get('subsample')
@@ -641,7 +701,9 @@ def eval_holdout(
         include=include,
         exclude=exclude,
         disable_file_output=disable_file_output,
-        init_params=init_params
+        init_params=init_params,
+        # 传入train_set参数
+        train_set=train_set
     )
     evaluator.fit_predict_and_loss(iterative=iterative)
 
@@ -662,6 +724,7 @@ def eval_iterative_holdout(
         exclude,
         disable_file_output,
         init_params=None,
+        train_set=False,
 ):
     return eval_holdout(
         queue=queue,
@@ -679,7 +742,9 @@ def eval_iterative_holdout(
         instance=instance,
         disable_file_output=disable_file_output,
         iterative=True,
-        init_params=init_params
+        init_params=init_params,
+        # 传入train_set参数
+        train_set=train_set
     )
 
 
@@ -699,7 +764,8 @@ def eval_partial_cv(
         exclude,
         disable_file_output,
         init_params=None,
-        iterative=False
+        iterative=False,
+        train_set=False
 ):
     instance = json.loads(instance) if instance is not None else {}
     subsample = instance.get('subsample')
@@ -721,6 +787,8 @@ def eval_partial_cv(
         exclude=exclude,
         disable_file_output=disable_file_output,
         init_params=init_params,
+        # 传入train_set参数
+        train_set=train_set
     )
 
     evaluator.partial_fit_predict_and_loss(fold=fold, iterative=iterative)
@@ -742,6 +810,7 @@ def eval_partial_cv_iterative(
         exclude,
         disable_file_output,
         init_params=None,
+        train_set=False
 ):
     return eval_partial_cv(
         queue=queue,
@@ -760,6 +829,8 @@ def eval_partial_cv_iterative(
         disable_file_output=disable_file_output,
         iterative=True,
         init_params=init_params,
+        # 传入train_set参数
+        train_set=train_set
     )
 
 
@@ -780,6 +851,7 @@ def eval_cv(
         exclude,
         disable_file_output,
         init_params=None,
+        train_set=False
 ):
     instance = json.loads(instance) if instance is not None else {}
     subsample = instance.get('subsample')
@@ -799,6 +871,8 @@ def eval_cv(
         exclude=exclude,
         disable_file_output=disable_file_output,
         init_params=init_params,
+        # 传入train_set参数
+        train_set=train_set
     )
 
     evaluator.fit_predict_and_loss()

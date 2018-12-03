@@ -103,7 +103,9 @@ class AbstractEvaluator(object):
                  include=None,
                  exclude=None,
                  disable_file_output=False,
-                 init_params=None):
+                 init_params=None,
+                 # 默认使用测试集
+                 train_set=False):
 
         self.starttime = time.time()
 
@@ -127,6 +129,8 @@ class AbstractEvaluator(object):
         self.output_y_hat_optimization = output_y_hat_optimization
         self.all_scoring_functions = all_scoring_functions
         self.disable_file_output = disable_file_output
+        # 设置train_set的flag
+        self.train_set = train_set
 
         if self.task_type in REGRESSION_TASKS:
             if not isinstance(self.configuration, Configuration):
@@ -231,7 +235,8 @@ class AbstractEvaluator(object):
 
         self.duration = time.time() - self.starttime
 
-        if file_output:
+        # 如果调用训练集，则不使用文件中的记录
+        if file_output and not self.train_set:
             loss_, additional_run_info_ = self.file_output(
                 train_pred, opt_pred, valid_pred, test_pred,
             )
@@ -414,6 +419,7 @@ class AbstractEvaluator(object):
 
         return None, {}
 
+    # evaluator基类的predict_proba函数
     def _predict_proba(self, X, model, task_type, Y_train):
         def send_warnings_to_log(message, category, filename, lineno,
                                  file=None, line=None):
@@ -423,8 +429,10 @@ class AbstractEvaluator(object):
 
         with warnings.catch_warnings():
             warnings.showwarning = send_warnings_to_log
+            # 调用模型预测的是X
             Y_pred = model.predict_proba(X, batch_size=1000)
 
+        # 没有用到Y_train，只是比较shape
         Y_pred = self._ensure_prediction_array_sizes(Y_pred, Y_train)
         return Y_pred
 

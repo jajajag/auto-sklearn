@@ -224,7 +224,9 @@ class AutoMLSMBO(object):
                  exclude_preprocessors=None,
                  disable_file_output=False,
                  smac_scenario_args=None,
-                 get_smac_object_callback=None):
+                 get_smac_object_callback=None,
+                 # 设置direction_args
+                 direction_args=None):
         super(AutoMLSMBO, self).__init__()
         # data related
         self.dataset_name = dataset_name
@@ -232,6 +234,8 @@ class AutoMLSMBO(object):
         self.metric = metric
         self.task = None
         self.backend = backend
+        # 设置direction args
+        self.direction_args = direction_args
 
         # the configuration space
         self.config_space = config_space
@@ -436,7 +440,9 @@ class AutoMLSMBO(object):
                                     metric=self.metric,
                                     memory_limit=self.memory_limit,
                                     disable_file_output=self.disable_file_output,
-                                    **self.resampling_strategy_args)
+                                    **self.resampling_strategy_args,
+                                    # 传到ta函数内
+                                    direction_args=self.direction_args)
 
         startup_time = self.watcher.wall_elapsed(self.dataset_name)
         total_walltime_limit = self.total_walltime_limit - startup_time - 5
