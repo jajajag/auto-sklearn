@@ -255,6 +255,11 @@ class TrainEvaluator(AbstractEvaluator):
             else:
                 # 使用测试集
                 loss = self._loss(Y_targets, Y_optimization_pred)
+            """
+            # 如果使用test数据，则将loss改为test的值
+            elif self.X_test is not None:
+                loss = self._loss(self.Y_test, Y_test_pred)
+            """
 
             if self.cv_folds > 1:
                 self.model = self._get_model()
@@ -309,9 +314,14 @@ class TrainEvaluator(AbstractEvaluator):
             # 修改train loss，不保证正确性
             if self.train_set:
                 loss = self._loss(self.Y_train[train_split][fold], opt_pred)
+            # 如果使用test数据，则将loss改为test的值
             else:
                 # 使用测试集
                 loss = self._loss(self.Y_targets[fold], opt_pred)
+            """
+            elif self.X_test is not None:
+                loss = self._loss(self.Y_test, test_pred)
+            """
 
             if self.cv_folds > 1:
                 self.model = self._get_model()
@@ -429,6 +439,10 @@ class TrainEvaluator(AbstractEvaluator):
                 else:
                     loss = self._loss(self.Y_train[test_indices],
                                       Y_optimization_pred)
+                """
+                elif self.X_test is not None:
+                    loss = self._loss(self.Y_test, test_pred)
+                """
 
                 additional_run_info = model.get_additional_run_info()
                 self.finish_up(

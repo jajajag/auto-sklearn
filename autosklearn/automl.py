@@ -315,7 +315,7 @@ class AutoML(BaseEstimator):
         if self._resampling_strategy not in [
              'holdout', 'holdout-iterative-fit',
              'cv', 'partial-cv',
-             'partial-cv-iterative-fit'] \
+             'partial-cv-iterative-fit', 'test'] \
              and not issubclass(self._resampling_strategy, BaseCrossValidator)\
              and not issubclass(self._resampling_strategy, _RepeatedSplits)\
              and not issubclass(self._resampling_strategy, BaseShuffleSplit):
