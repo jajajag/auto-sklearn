@@ -49,7 +49,8 @@ class GenericGMB(BaseEstimator):
                  verbose=True,
                  model=None,
                  # autosklearn需要random_state
-                 random_state=1):
+                 random_state=1,
+                 train_file: str = None):
 
         # 默认使用路径中的lightgbm
         try:
@@ -69,6 +70,8 @@ class GenericGMB(BaseEstimator):
         self.verbose = verbose
         # 为了让autosklearn调用，改名
         self.n_estimators = n_estimators
+        # 如果使用train_file，则使用其绝对路径
+        self.train_file = os.path.abspath(train_file)
         self.param = {
             'application': application,
             'n_estimators': n_estimators,
@@ -100,15 +103,37 @@ class GenericGMB(BaseEstimator):
             'random_state': random_state,
         }
 
-    def fit(self, X, y, test_data=None, init_scores=[]):
+    def fit(self,
+            X: np.ndarray,
+            y: np.ndarray,
+            test_data=None,
+            init_scores=[]):
+        """Base train function for both classificaiton and regression of the
+        LightGBM.
+
+        Parameters
+        ----------
+        X : array_like
+            Features of the input.
+        y : array_like
+            Labels of the input.
+        test_data : dict[X, y]
+            A set of (train, test) pairs.
+        init_scores
+        """
         # create tmp dir to hold data and model (especially the latter)
         tmp_dir = tempfile.mkdtemp()
         issparse = sps.issparse(X)
         f_format = "svm" if issparse else "csv"
 
-        train_filepath = os.path.abspath("{}/X.{}".format(tmp_dir, f_format))
+        # 如果指定了训练集，使用
+        if self.train_file:
+            train_filepath = self.train_file
+        else:
+            train_filepath = os.path.abspath(
+                "{}/X.{}".format(tmp_dir, f_format))
+            io_utils.dump_data(X, y, train_filepath, issparse)
         init_filepath = train_filepath + ".init"
-        io_utils.dump_data(X, y, train_filepath, issparse)
 
         if len(init_scores) > 0:
             assert len(init_scores) == X.shape[0]
@@ -167,8 +192,11 @@ class GenericGMB(BaseEstimator):
         issparse = sps.issparse(X)
         f_format = "svm" if issparse else "csv"
 
-        predict_filepath = os.path.abspath(
-            os.path.join(tmp_dir, "X_to_pred.{}".format(f_format)))
+        if self.train_file:
+            predict_filepath = self.train_file
+        else:
+            predict_filepath = os.path.abspath(
+                os.path.join(tmp_dir, "X_to_pred.{}".format(f_format)))
         output_model = os.path.abspath(os.path.join(tmp_dir, "model"))
         output_results = os.path.abspath(
             os.path.join(tmp_dir, "LightGBM_predict_result.txt"))
@@ -321,8 +349,11 @@ class GBMClassifier(GenericGMB, ClassifierMixin):
         issparse = sps.issparse(X)
         f_format = "svm" if issparse else "csv"
 
-        predict_filepath = os.path.abspath(
-            os.path.join(tmp_dir, "X_to_pred.{}".format(f_format)))
+        if self.train_file:
+            predict_filepath = self.train_file
+        else:
+            predict_filepath = os.path.abspath(
+                os.path.join(tmp_dir, "X_to_pred.{}".format(f_format)))
         output_model = os.path.abspath(os.path.join(tmp_dir, "model"))
         conf_filepath = os.path.join(tmp_dir, "predict.conf")
         output_results = os.path.abspath(

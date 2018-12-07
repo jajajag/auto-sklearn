@@ -13,8 +13,8 @@ from autosklearn.pipeline.components.base import (
 )
 from autosklearn.pipeline.implementations.models import GBMClassifier
 from autosklearn.pipeline.constants import *
-from sklearn.model_selection import train_test_split
-import lightgbm as lgb
+import sklearn.model_selection
+from psutil import cpu_count
 
 
 class LightGBM(
@@ -33,7 +33,8 @@ class LightGBM(
                  max_bin, verbose=False,
                  # 5. 测量参数
                  metric="", is_training_metric=False, metric_freq=1,
-                 random_state=None):
+                 random_state=None,
+                 train_file: str = None):
 
         # 1. 核心参数
         # 设置estmator初始为空
@@ -99,17 +100,15 @@ class LightGBM(
         # 输出metric的频率
         self.metric_freq = metric_freq
 
-    #def iterative_fit(self, X, y, n_iter=2, refit=False, sample_weight=None):
-    def fit(self, X, y):
+        self.train_file = './data/train_set.csv'
+
+    def iterative_fit(self, X, y, n_iter=2, refit=False, sample_weight=None):
 
         # 均衡的分离训练集和测试集
-        X_train, X_test, y_train, y_test = train_test_split(
+        """
+        X_train, X_test, y_train, y_test = sklearn.model_selection.train_test_split(
             X, y, random_state=1, test_size=0.1, stratify=y)
-        # 将数据转化为lightgbm的格式
-        train_data = lgb.Dataset(X_train, label=y_train)
-        test_data = lgb.Dataset(X_test, label=y_test)
-        refit = False
-        self.estimator = None
+        """
 
         # 如果refit，则重新创建模型
         if refit:
@@ -159,8 +158,7 @@ class LightGBM(
                 application=self.application,
                 boosting_type=self.boosting_type,
                 # 每次只跑两轮(别名n_estimators)
-                #n_estimators=n_iter,
-                n_estimators=self.n_estimators,
+                n_estimators=n_iter,
                 learning_rate=self.learning_rate,
                 num_leaves=self.num_leaves,
                 tree_learner=self.tree_learner,
@@ -178,7 +176,7 @@ class LightGBM(
                 feature_fraction_seed=self.feature_fraction_seed,
                 early_stopping_round=self.early_stopping_round,
                 # 3. IO参数
-                verbose=1 if self.verbose else 0,
+                verbose=self.verbose,
                 max_bin=self.max_bin,
                 # 4. 对象参数
                 num_class=self.num_class,
@@ -186,31 +184,27 @@ class LightGBM(
                 # 5. 测量参数
                 metric=self.metric,
                 is_training_metric=self.is_training_metric,
-                metric_freq=self.metric_freq
+                metric_freq=self.metric_freq,
+                train_file=self.train_file
             )
             # 创建分类器并调用
-            # self.estimator = GBMClassifier(**arguments)
-            # 轮数写死为100
-            self.estimator = lgb.train(arguments, train_data,
-                                       num_boost_round=100,
-                                       valid_sets=test_data)
+            self.estimator = GBMClassifier(**arguments)
 
-        """
         # 如果没有一次把所有轮数跑完
         elif not self.configuration_fully_fitted():
-            self.n_estimators -= n_iter
 
             self.estimator.n_estimators += n_iter
             self.estimator.n_estimators = min(self.estimator.n_estimators,
                                               self.n_estimators)
 
-        # 对模型进行fit(我怎么多写了一行。。)
-        # self.estimator.fit(X_train, y_train, test_data=[(X_test, y_test)])
+        # 对模型进行fit
+        #self.estimator.fit(X_train, y_train, test_data=[(X_test, y_test)])
+        # lightgbm本身不需要验证集，验证交给autosklearn去做
+        self.estimator.fit(X, y)
 
         # 不要忘了把flag设成true，不然会一直跑
         if self.estimator.n_estimators >= self.n_estimators:
             self.fully_fit_ = True
-        """
 
         return self
 
@@ -227,17 +221,14 @@ class LightGBM(
     def predict(self, X):
         if self.estimator is None:
             raise NotImplementedError()
-        # return self.estimator.predict(X)
-        proba = self.predict_proba(X)
-        return np.argmin([proba, 1 - proba], axis=0)
+        return self.estimator.predict(X)
 
     # 返回带概率的预测值
     def predict_proba(self, X):
         if self.estimator is None:
             raise NotImplementedError()
         # 调用上层GBMClassifier的predict_proba函数
-        # return self.estimator.predict_proba(X)
-        return self.estimator.predict(X)
+        return self.estimator.predict_proba(X)
 
     # 获得LightGBM的基本信息
     @staticmethod
@@ -277,7 +268,7 @@ class LightGBM(
         # Number of boosting iterations, LightGBM constructs num_class * num_
         # Max number of leaves in one tree
         num_leaves = UniformIntegerHyperparameter(
-            name="num_leaves", lower=7, upper=8191, default_value=31)
+            name="num_leaves", lower=7, upper=127, default_value=31)
         '''
         tree_learner = CategoricalHyperparameter(
             name='tree_learner', ['serial', 'feature', 'data', 'voting'],
@@ -287,8 +278,9 @@ class LightGBM(
         tree_learner = UnParametrizedHyperparameter(name='tree_learner',
                                                     value='serial')
         # Using default number of threads in OpenMP
+        # 使用真实cpu核数-2的核运行
         num_threads = UnParametrizedHyperparameter(
-            name="num_threads", value=0)
+            name="num_threads", value=cpu_count(logical=False) - 2)
 
         # 2. 学习控制参数
         # limit the max depthfor tree model.This is used to deal with
@@ -346,14 +338,14 @@ class LightGBM(
             name="feature_fraction_seed", value=2)
         # Will stop training if one metric of one validation data doesn’t
         # improve in last early_stopping_round rounds
-        # 默认不使用早停
+        # 使用50轮早停
         early_stopping_round = UnParametrizedHyperparameter(
-            name="early_stopping_round", value=0)
+            name="early_stopping_round", value=50)
 
         # 3. IO参数
         # Max number of bins that feature values will be bucketed in
-        max_bin = UniformIntegerHyperparameter(
-            name="max_bin", lower=7, upper=8191, default_value=255)
+        # 设定为常量255，师兄说项目创始人推荐的参数
+        max_bin = UnParametrizedHyperparameter(name="max_bin", value=255)
 
         cs.add_hyperparameters([
             # 1. 核心参数
