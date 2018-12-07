@@ -437,7 +437,6 @@ class ExecuteTaFuncWithQueue(AbstractTAFunc):
         autosklearn.evaluation.util.empty_queue(queue)
 
         # 打印必要的信息，简称打信息
-        print('ADDITIONAL_RUN_INFO:', additional_run_info)
         if 'info' in vars():  # or 'info' in global():
             print('INFO:', info)
         print(config)

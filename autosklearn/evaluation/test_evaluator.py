@@ -17,10 +17,13 @@ class TestEvaluator(AbstractEvaluator):
                  configuration=None,
                  all_scoring_functions=False,
                  seed=1,
+                 output_y_hat_optimization=True,
+                 num_run=None,
                  include=None,
                  exclude=None,
                  disable_file_output=False,
-                 init_params=None):
+                 init_params=None,
+                 train_set: bool = False):
         super(TestEvaluator, self).__init__(
             backend=backend,
             queue=queue,
@@ -28,12 +31,12 @@ class TestEvaluator(AbstractEvaluator):
             metric=metric,
             all_scoring_functions=all_scoring_functions,
             seed=seed,
-            output_y_hat_optimization=False,
-            num_run=-1,
+            output_y_hat_optimization=output_y_hat_optimization,
+            num_run=num_run,
             subsample=None,
             include=include,
             exclude=exclude,
-            disable_file_output= disable_file_output,
+            disable_file_output=disable_file_output,
             init_params=init_params
         )
         self.configuration = configuration
@@ -45,24 +48,26 @@ class TestEvaluator(AbstractEvaluator):
         self.Y_test = self.datamanager.data.get('Y_test')
 
         self.model = self._get_model()
+        self.train_set = train_set
 
     def fit_predict_and_loss(self):
         self._fit_and_suppress_warnings(self.model, self.X_train, self.Y_train)
         loss, Y_pred, _, _ =  self.predict_and_loss()
+        additional_run_info = self.model.get_additional_run_info()
         self.finish_up(
             loss=loss,
             train_pred=None,
             opt_pred=Y_pred,
             valid_pred=None,
             test_pred=None,
-            file_output=False,
+            file_output=True,
             final_call=True,
-            additional_run_info=None,
+            additional_run_info=additional_run_info,
         )
 
     def predict_and_loss(self, train=False):
 
-        if train:
+        if train or self.train_set:
             Y_pred = self.predict_function(self.X_train, self.model,
                                            self.task_type, self.Y_train)
             score = calculate_score(
@@ -93,14 +98,16 @@ class TestEvaluator(AbstractEvaluator):
 # Has a stupid name so nosetests doesn't regard it as a test
 def eval_t(queue, config, backend, metric, seed, num_run, instance,
            all_scoring_functions, output_y_hat_optimization, include,
-           exclude, disable_file_output, init_params=None):
+           exclude, disable_file_output, init_params=None,
+           train_set: bool = False):
     evaluator = TestEvaluator(configuration=config,
                               backend=backend, metric=metric, seed=seed,
                               queue=queue,
                               all_scoring_functions=all_scoring_functions,
                               include=include, exclude=exclude,
                               disable_file_output=disable_file_output,
-                              init_params=init_params)
+                              init_params=init_params,
+                              train_set=train_set)
 
     evaluator.fit_predict_and_loss()
 
