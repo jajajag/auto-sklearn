@@ -16,7 +16,7 @@ import autosklearn.pipeline.implementations.io_utils as io_utils
 from sklearn.base import BaseEstimator, ClassifierMixin, RegressorMixin
 
 
-class GenericGMB(BaseEstimator):
+class GenericGBM(BaseEstimator):
     def __init__(self, exec_path="lightgbm",
                  config="",
                  application="regression",
@@ -276,7 +276,7 @@ class GenericGMB(BaseEstimator):
         return dic_fi
 
 
-class GBMClassifier(GenericGMB, ClassifierMixin):
+class GBMClassifier(GenericGBM, ClassifierMixin):
     def __init__(self, exec_path="lightgbm",
                  config="",
                  application='binary',
@@ -308,7 +308,8 @@ class GBMClassifier(GenericGMB, ClassifierMixin):
                  min_gain_to_split=0.,
                  verbose=True,
                  model=None,
-                 random_state=1):
+                 random_state=1,
+                 train_file: str = None):
         super(GBMClassifier, self).__init__(exec_path=exec_path,
                                             config=config,
                                             application=application,
@@ -340,7 +341,8 @@ class GBMClassifier(GenericGMB, ClassifierMixin):
                                             min_gain_to_split=min_gain_to_split,
                                             verbose=verbose,
                                             model=model,
-                                            random_state=random_state)
+                                            random_state=random_state,
+                                            train_file=train_file)
 
     def predict_proba(self, X):
         # 创建临时目录
@@ -406,7 +408,7 @@ class GBMClassifier(GenericGMB, ClassifierMixin):
         return y_prob.argmax(-1)
 
 
-class GBMRegressor(GenericGMB, RegressorMixin):
+class GBMRegressor(GenericGBM, RegressorMixin):
     def __init__(self, exec_path="lightgbm",
                  config="",
                  application='regression',
@@ -438,7 +440,8 @@ class GBMRegressor(GenericGMB, RegressorMixin):
                  min_gain_to_split=0.,
                  verbose=True,
                  model=None,
-                 random_state=1):
+                 random_state=1,
+                 train_file: str = None):
         super(GBMRegressor, self).__init__(exec_path=exec_path,
                                            config=config,
                                            application=application,
@@ -470,4 +473,5 @@ class GBMRegressor(GenericGMB, RegressorMixin):
                                            min_gain_to_split=min_gain_to_split,
                                            verbose=verbose,
                                            model=model,
-                                           random_state=1)
+                                           random_state=1,
+                                           train_file=train_file)
