@@ -192,11 +192,8 @@ class GenericGBM(BaseEstimator):
         issparse = sps.issparse(X)
         f_format = "svm" if issparse else "csv"
 
-        if self.train_file:
-            predict_filepath = self.train_file
-        else:
-            predict_filepath = os.path.abspath(
-                os.path.join(tmp_dir, "X_to_pred.{}".format(f_format)))
+        predict_filepath = os.path.abspath(
+            os.path.join(tmp_dir, "X_to_pred.{}".format(f_format)))
         output_model = os.path.abspath(os.path.join(tmp_dir, "model"))
         output_results = os.path.abspath(
             os.path.join(tmp_dir, "LightGBM_predict_result.txt"))
@@ -351,11 +348,8 @@ class GBMClassifier(GenericGBM, ClassifierMixin):
         issparse = sps.issparse(X)
         f_format = "svm" if issparse else "csv"
 
-        if self.train_file:
-            predict_filepath = self.train_file
-        else:
-            predict_filepath = os.path.abspath(
-                os.path.join(tmp_dir, "X_to_pred.{}".format(f_format)))
+        predict_filepath = os.path.abspath(
+            os.path.join(tmp_dir, "X_to_pred.{}".format(f_format)))
         output_model = os.path.abspath(os.path.join(tmp_dir, "model"))
         conf_filepath = os.path.join(tmp_dir, "predict.conf")
         output_results = os.path.abspath(
